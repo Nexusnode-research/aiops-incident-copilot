@@ -1,0 +1,78 @@
+{
+  "wazuh": {
+    "_si": [
+      "splunk", 
+      "wazuh"
+    ], 
+    "index": "wazuh", 
+    "linecount": "33", 
+    "sourcetype": "WinEventLog", 
+    "source": "WinEventLog:Security", 
+    "host": "DC", 
+    "splunk_server": "splunk", 
+    "_time": "2025-12-21 16:35:00.000 UTC", 
+    "_bkt": "wazuh~35~5731D54D-72AF-43E2-8175-75C51FCF742B", 
+    "_sourcetype": "WinEventLog", 
+    "_indextime": "1766334901", 
+    "_raw": "12/21/2025 06:35:00 PM\nLogName=Security\nEventCode=5156\nEventType=0\nComputerName=DC.example.local\nSourceName=Microsoft Windows security auditing.\nType=Information\nRecordNumber=5221410\nKeywords=Audit Success\nTaskCategory=Filtering Platform Connection\nOpCode=Info\nMessage=The Windows Filtering Platform has permitted a connection.\r\n\r\nApplication Information:\r\n\tProcess ID:\t\t3832\r\n\tApplication Name:\t\\device\\harddiskvolume4\\program files\\azureconnectedmachineagent\\himds.exe\r\n\r\nNetwork Information:\r\n\tDirection:\t\tInbound\r\n\tSource Address:\t\t127.0.0.1\r\n\tSource Port:\t\t57419\r\n\tDestination Address:\t127.0.0.1\r\n\tDestination Port:\t\t40342\r\n\tProtocol:\t\t6\r\n\tInterface Index:\t\t1\r\n\r\nFilter Information:\r\n\tFilter Origin:\t\tAppContainer Loopback\r\n\tFilter Run-Time ID:\t67299\r\n\tLayer Name:\t\tReceive/Accept\r\n\tLayer Run-Time ID:\t44\r\n\tRemote User ID:\t\tS-1-0-0\r\n\tRemote Machine ID:\tS-1-0-0", 
+    "_serial": "0", 
+    "_cd": "35:3232557"
+  }, 
+  "sysmon": {
+    "_si": [
+      "splunk", 
+      "sysmon"
+    ], 
+    "index": "sysmon", 
+    "linecount": "33", 
+    "sourcetype": "XmlWinEventLog", 
+    "source": "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational", 
+    "host": "DC", 
+    "splunk_server": "splunk", 
+    "_time": "2025-12-21 16:34:18.000 UTC", 
+    "_bkt": "sysmon~62~5731D54D-72AF-43E2-8175-75C51FCF742B", 
+    "_sourcetype": "XmlWinEventLog", 
+    "_indextime": "1766334859", 
+    "_raw": "12/21/2025 06:34:18 PM\nLogName=Microsoft-Windows-Sysmon/Operational\nEventCode=3\nEventType=4\nComputerName=DC.example.local\nUser=NOT_TRANSLATED\nSid=S-1-5-18\nSidType=0\nSourceName=Microsoft-Windows-Sysmon\nType=Information\nRecordNumber=808612\nKeywords=None\nTaskCategory=File created (rule: FileCreate)\nOpCode=Info\nMessage=Network connection detected:\r\nRuleName: technique_id=T1571,technique_name=Non-Standard Port\r\nUtcTime: 2025-11-19 09:45:42.220\r\nProcessGuid: {939cb70b-20fa-691b-1a00-000000001900}\r\nProcessId: 1404\r\nImage: C:\\Windows\\System32\\svchost.exe\r\nUser: NT AUTHORITY\\NETWORK SERVICE\r\nProtocol: udp\r\nInitiated: false\r\nSourceIsIpv6: false\r\nSourceIp: 224.0.0.251\r\nSourceHostname: -\r\nSourcePort: 5353\r\nSourcePortName: -\r\nDestinationIsIpv6: false\r\nDestinationIp: 192.168.10.50\r\nDestinationHostname: -\r\nDestinationPort: 5353\r\nDestinationPortName: -", 
+    "_serial": "0", 
+    "_cd": "62:276215"
+  }, 
+  "opnsense": {
+    "_si": [
+      "splunk", 
+      "main"
+    ], 
+    "index": "main", 
+    "linecount": "1", 
+    "sourcetype": "opnsense:syslog", 
+    "source": "udp:5514", 
+    "host": "192.168.10.2", 
+    "splunk_server": "splunk", 
+    "_time": "2025-12-21 16:35:00.000 UTC", 
+    "_bkt": "main~103~5731D54D-72AF-43E2-8175-75C51FCF742B", 
+    "_sourcetype": "opnsense:syslog", 
+    "_indextime": "1766334903", 
+    "_raw": "Dec 21 16:35:00 192.168.10.2 1 2025-12-21T18:35:00+02:00 OPNsense.localdomain configd.py 432 - [meta sequenceId=\"55746\"] message 898707bc-b18f-4e22-bf5d-ab7dbdaff6aa [] returned b'checking mongodb...\\nchecking mongodb done\\ndasboard-cache...\\nCLI dashboard-cache: Cached ...\\ndashboar' ", 
+    "_serial": "0", 
+    "_cd": "103:4638083"
+  }, 
+  "juiceshop": {
+    "_si": [
+      "splunk", 
+      "network"
+    ], 
+    "index": "network", 
+    "linecount": "1", 
+    "sourcetype": "nginx:access", 
+    "source": "/var/log/nginx/access.log", 
+    "host": "juiceshop", 
+    "splunk_server": "splunk", 
+    "_time": "2025-12-18 12:43:56.000 UTC", 
+    "_bkt": "network~15~5731D54D-72AF-43E2-8175-75C51FCF742B", 
+    "_sourcetype": "nginx:access", 
+    "_indextime": "1766061857", 
+    "_raw": "192.168.10.20 - - [18/Dec/2025:12:43:56 +0000] \"GET /socket.io/?EIO=4&transport=polling&t=Pgedyjs&sid=_4SY_gWesOgUOCjLAAAA HTTP/1.1\" 200 1 \"http://juice.example.com/\" \"Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0\"", 
+    "_serial": "0", 
+    "_cd": "15:28880"
+  }
+}

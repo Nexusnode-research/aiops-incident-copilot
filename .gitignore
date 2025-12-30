@@ -1,0 +1,33 @@
+# Secrets
+.env
+.env.local
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Docker / DB
+pgdata/
+*.dump
+*.sql.gz
+
+# IDE / System
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Project Specific
+data/
+*.log
+last_burst_tag_*.txt
+scripts/archive/
+scripts/debug/
