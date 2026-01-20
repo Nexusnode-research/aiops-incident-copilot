@@ -50,7 +50,7 @@ def fetch_splunk_events(minutes: int, limit: int):
 
     default_search = (
         f"search earliest=-{minutes}m "
-        f"(index=wazuh OR index=network) "
+        f"(index=wazuh OR index=network OR index=main) "
         f"| head {limit}"
     )
     search = _env("SPLUNK_SEARCH", default_search)

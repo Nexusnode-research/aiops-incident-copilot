@@ -105,8 +105,10 @@ def generate_heuristic_brief(incident, signals):
         return "No evidence found for this incident."
         
     root_entity = f"{incident['root_entity_type']}:{incident['root_entity_id']}"
-    start_str = incident['start_time'].strftime('%Y-%m-%d %H:%M:%S')
-    last_update = incident['last_update_time'].strftime('%Y-%m-%d %H:%M:%S')
+    root_entity = f"{incident['root_entity_type']}:{incident['root_entity_id']}"
+    # Shift to SAST (+2)
+    start_str = (incident['start_time'] + pd.Timedelta(hours=2)).strftime('%Y-%m-%d %H:%M:%S')
+    last_update = (incident['last_update_time'] + pd.Timedelta(hours=2)).strftime('%Y-%m-%d %H:%M:%S')
     
     # --- STATISTICS ---
     # Deduplicate for summary stats (unique signal types)

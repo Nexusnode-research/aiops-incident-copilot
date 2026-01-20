@@ -54,9 +54,19 @@ def extract_winevent_message(msg):
     if m_dest:
         data["dest_ip"] = m_dest.group(1) or m_dest.group(2)
         
-    m_user = RE_WIN_USER.search(msg)
-    if m_user:
-        data["username"] = (m_user.group(1) or m_user.group(2)).strip()
+    # XML Extraction (Priority) - Iterate to find non-hyphen
+    # Sometimes the first TargetUserName is just "-", so we check all occurrences.
+    for m_xml in re.finditer(r"TargetUserName.*?>(.*?)<", msg):
+        candidate = m_xml.group(1).strip()
+        if candidate and candidate != "-":
+            data["username"] = candidate
+            break
+    
+    # Text Fallback
+    if not data.get("username"):
+        m_user = RE_WIN_USER.search(msg)
+        if m_user:
+            data["username"] = (m_user.group(1) or m_user.group(2)).strip()
 
     m_source = re.search(r"SourceName=([^\r\n]+)", msg)
     if m_source:
@@ -212,6 +222,15 @@ def normalize_event(row):
             out["severity"] = 2 # At least warning
         if out["rule_id"] == "4624": out["event_kind"] = "auth"
         if out["rule_id"] == "5156": out["event_kind"] = "network"
+
+        # LAB BURST OVERRIDE (demo/test only)
+        if out.get("rule_id") == "4625":
+            u = (out.get("username") or "").upper()
+            if u.startswith("FAIL_LAB_BURST") or "LAB_BURST" in u:
+                out["severity"] = 7
+                out["event_kind"] = "alert"
+                out["signature"] = out.get("signature") or "LAB_BURST tagged auth failure"
+                out["extras"]["lab_burst"] = True
 
     elif vendor == "juiceshop":
         # Nginx extraction
