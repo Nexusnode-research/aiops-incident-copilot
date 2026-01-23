@@ -3,8 +3,14 @@ import requests
 from requests.auth import HTTPBasicAuth
 import psycopg2
 from psycopg2.extras import Json, execute_values
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import hashlib
+
+_TZ_ABBREV = {
+    "UTC": timezone.utc,
+    "CAT": timezone(timedelta(hours=2)),   # Central Africa Time (UTC+2)
+    "SAST": timezone(timedelta(hours=2)),  # South Africa Standard Time (UTC+2)
+}
 
 def make_event_key(ev: dict) -> str:
     # Best key from Splunk (stable + unique)
@@ -45,9 +51,24 @@ def parse_splunk_time(v):
     except Exception:
         pass
 
-    # "2025-12-18 14:31:16.615 UTC" or without millis
-    if s.endswith("UTC"):
-        s = s[:-3].strip()
+    # ISO 8601 (with offset or Z)
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).astimezone(timezone.utc)
+    except Exception:
+        pass
+
+    # "YYYY-mm-dd HH:MM:SS(.mmm) TZ" (e.g. UTC/CAT/SAST)
+    parts = s.split()
+    if len(parts) >= 3 and parts[-1] in _TZ_ABBREV:
+        tz = _TZ_ABBREV[parts[-1]]
+        base = " ".join(parts[:-1])
+        for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+            try:
+                return datetime.strptime(base, fmt).replace(tzinfo=tz).astimezone(timezone.utc)
+            except Exception:
+                pass
+
+    # fallback: treat as UTC if it matches common formats
     for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
         try:
             return datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)

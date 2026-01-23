@@ -10,6 +10,7 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
 def ollama_brief(system_prompt: str, user_prompt: str) -> str:
     """
     Calls the local Ollama instance to generate text.
+    Uses streaming mode for better responsiveness and fallback handling.
     """
     payload = {
         "model": OLLAMA_MODEL,
@@ -17,16 +18,39 @@ def ollama_brief(system_prompt: str, user_prompt: str) -> str:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        "stream": False,
+        "stream": True,  # Use streaming for better timeout handling
         "options": {"temperature": 0.2}
     }
     try:
-        r = requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=120)
+        # Quick health check first
+        health_check = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
+        if health_check.status_code != 200:
+            raise Exception("Ollama health check failed")
+        
+        # Stream the response
+        r = requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=60, stream=True)
         r.raise_for_status()
-        data = r.json()
-        return data["message"]["content"]
+        
+        content = ""
+        for line in r.iter_lines():
+            if line:
+                try:
+                    chunk = json.loads(line)
+                    if "message" in chunk and "content" in chunk["message"]:
+                        content += chunk["message"]["content"]
+                    if chunk.get("done", False):
+                        break
+                except json.JSONDecodeError:
+                    continue
+        
+        if not content:
+            raise Exception("Empty response from Ollama")
+        
+        return content
+    except requests.exceptions.Timeout:
+        raise Exception("Ollama request timed out. The model may be loading or stuck. Try restarting Ollama.")
     except Exception as e:
-        return f"Error communicating with Ollama: {e}"
+        raise Exception(f"Error communicating with Ollama: {e}")
 
 def generate_splunk_queries(entity_type, entity_id, start_time, end_time):
     """
@@ -60,6 +84,7 @@ def generate_splunk_queries(entity_type, entity_id, start_time, end_time):
 def generate_ai_brief(incident, signals) -> str:
     """
     Generates an Incident Brief using the local LLM.
+    Falls back to heuristic brief if Ollama is unavailable.
     """
     if signals.empty:
         evidence_str = "No specific evidence found."
@@ -94,7 +119,12 @@ def generate_ai_brief(incident, signals) -> str:
         "Please generate the executive incident brief."
     )
 
-    return ollama_brief(system_prompt, user_prompt)
+    try:
+        return ollama_brief(system_prompt, user_prompt)
+    except Exception as e:
+        # Fallback to heuristic brief with a note
+        heuristic = generate_heuristic_brief(incident, signals)
+        return f"**Note:** AI generation unavailable ({str(e)}). Showing heuristic analysis:\n\n{heuristic}"
 
 def generate_heuristic_brief(incident, signals):
     """

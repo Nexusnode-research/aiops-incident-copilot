@@ -5,6 +5,7 @@ import time
 import argparse
 import psycopg2
 import re
+from datetime import datetime, timezone, timedelta
 from psycopg2.extras import DictCursor, execute_values
 
 # --- CONFIG & UTILS ---
@@ -27,6 +28,52 @@ def safe_int(v):
         return int(v) if v is not None else None
     except:
         return None
+
+_TZ_ABBREV = {
+    "UTC": timezone.utc,
+    "CAT": timezone(timedelta(hours=2)),
+    "SAST": timezone(timedelta(hours=2)),
+}
+
+def parse_event_time(v):
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v if v.tzinfo else v.replace(tzinfo=timezone.utc)
+
+    s = str(v).strip()
+
+    # epoch seconds
+    try:
+        return datetime.fromtimestamp(float(s), tz=timezone.utc)
+    except Exception:
+        pass
+
+    # ISO 8601
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).astimezone(timezone.utc)
+    except Exception:
+        pass
+
+    # "YYYY-mm-dd HH:MM:SS(.mmm) TZ"
+    parts = s.split()
+    if len(parts) >= 3 and parts[-1] in _TZ_ABBREV:
+        tz = _TZ_ABBREV[parts[-1]]
+        base = " ".join(parts[:-1])
+        for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+            try:
+                return datetime.strptime(base, fmt).replace(tzinfo=tz).astimezone(timezone.utc)
+            except Exception:
+                pass
+
+    # fallback formats
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
+        except Exception:
+            pass
+
+    return None
 
 # --- EXTRACTION LOGIC ---
 
@@ -118,7 +165,17 @@ def classify_vendor(row, sourcetype, source):
 def sanitize_ip(val):
     if not val: return None
     v = val.strip()
-    if v in ["-", ""]: return None
+    if v in ["-", ""]:
+        return None
+    # Only allow valid IPv4 literals for inet columns; drop placeholders like "0"
+    if not re.match(r"^\d{1,3}(\.\d{1,3}){3}$", v):
+        return None
+    parts = v.split(".")
+    try:
+        if any(int(p) < 0 or int(p) > 255 for p in parts):
+            return None
+    except Exception:
+        return None
     return v
 
 def normalize_event(row):
@@ -450,6 +507,7 @@ def run_batch(limit=1000):
                 
                 # Safe event_time extraction
                 evt_time = norm.get("event_time") or r.get("event_time") or r.get("raw_json", {}).get("_time")
+                evt_time = parse_event_time(evt_time)
                 if not evt_time:
                     # Fallback to ingestion time if available, or skip
                     # Ideally we don't want to skip if we can just use "now", but for historical data "now" is wrong.
@@ -490,6 +548,8 @@ def run_batch(limit=1000):
                 ) VALUES %s
                 ON CONFLICT (raw_id) DO NOTHING
             """
+            if not insert_rows:
+                return 0
             execute_values(cur, sql, insert_rows)
             return len(insert_rows)
             

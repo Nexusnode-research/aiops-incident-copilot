@@ -33,6 +33,10 @@ Security analysts are overwhelmed by raw log volume (syslog, Windows Events, fir
 4.  **Signals**: Anomalies detected from features (e.g., "Auth Fail Spike > 3x Baseline") or critical signature matches.
 5.  **Incidents**: Related signals grouped by Entity (Host/User) and Time Window.
 
+## Demo Video
+
+[![Demo Video](https://img.youtube.com/vi/58E9QjJEZag/0.jpg)](https://youtu.be/58E9QjJEZag)
+
 ## How to Run (One-Command Demo)
 
 To run in **Demo Mode**, uncomment these lines in `docker-compose.yml`:
