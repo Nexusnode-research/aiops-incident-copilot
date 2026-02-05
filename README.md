@@ -84,3 +84,28 @@ Visit `http://localhost:8050` to view the generated Incidents and Signals.
 *   **Database**: PostgreSQL 15
 *   **Orchestration**: Docker Compose
 *   **Frontend**: Plotly Dash
+
+## Lab Infrastructure & Telemetry
+
+To generate live signals from the lab VMs (OPNsense, JuiceShop, DC, PC1), use the provided PowerShell burst script:
+
+```powershell
+.\lab_burst_v3_5.ps1
+```
+
+### SSH Requirements (Critical)
+
+Accessing the internal Windows hosts (DC, PC1) via the OPNsense bastion requires specific tuning:
+
+1.  **SSH Config**: Use `ProxyCommand` instead of `ProxyJump` for Windows targets to improve stability.
+    ```text
+    Host dc
+      ProxyCommand ssh -q -W %h:%p opnsense
+    ```
+2.  **MTU Tuning**: If SSH hangs at `KEXINIT` (Key Exchange), it is likely an MTU/Fragmentation issue on the tunnel.
+    *   **Fix**: Set OPNsense LAN interface (`em0`) MTU to **1350**.
+    *   Command: `ssh opnsense "ifconfig em0 mtu 1350"`
+3.  **MaxStartups**: If you see `Exceeded MaxStartups`, the target has too many pending (zombie) connections. Wait 2-5 minutes or reboot the target VM.
+
+The burst script is **fault-tolerant** and will skip unreachable hosts while continuing to generate telemetry on available ones.
+

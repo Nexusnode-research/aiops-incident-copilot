@@ -29,7 +29,19 @@ function Invoke-SshAndVerify {
     
     # Run SSH command with our strict options
     # We use & to execute the array of arguments correctly
-    $Output = & ssh $SSH_OPTS $HostAlias $Command 2>&1
+    
+    # Temporarily allow stderr without exception
+    $Local:ErrorActionPreference = "Continue"
+
+    if ($HostAlias -match "dc|pc1") {
+        # Windows Targets:
+        $Remote = $Command.Replace('"', '\"')
+        $Output = & ssh $SSH_OPTS $HostAlias $Remote 2>&1
+    }
+    else {
+        # Linux/BSD: Pass command directly
+        $Output = & ssh $SSH_OPTS $HostAlias $Command 2>&1
+    }
     
     if ($LASTEXITCODE -eq 0) {
         Write-Host " [OK]" -ForegroundColor Green
@@ -61,9 +73,19 @@ Write-Host "`n[Pre-flight] Verifying connectivity to all hosts..." -ForegroundCo
 $PreFlightCmd = "whoami" 
 
 $Hosts = "opnsense", "juiceshop", "dc", "pc1"
+$AvailableHosts = @()
 
 foreach ($H in $Hosts) {
-    Invoke-SshAndVerify -HostAlias $H -Command $PreFlightCmd -Description "Pre-flight Check: $H"
+    try {
+        Invoke-SshAndVerify -HostAlias $H -Command $PreFlightCmd -Description "Pre-flight Check: $H"
+        # If Invoke-SshAndVerify didn't throw, it was successful?
+        # Wait, Invoke-SshAndVerify throws on failure (Line 63).
+        $AvailableHosts += $H
+    }
+    catch {
+        Write-Host " [SKIPPING] Host $H is unreachable." -ForegroundColor Red
+        Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Gray
+    }
 }
 
 Write-Host "`n[Pre-flight] All hosts reachable. Proceeding with burst." -ForegroundColor Green
@@ -79,7 +101,9 @@ $EveJson = '{"timestamp": "2025-12-21T12:00:00.000000+0000", "event_type": "aler
 # We use single quotes around the command string for PowerShell to pass it literally to SSH
 # Inside the string, we construct the shell command for the remote host
 $OpnCmd = "logger -t $Tag '$OpnMsg'; echo '$OpnMsg' | nc -u -w 1 172.16.58.134 5514; logger -t suricata '$EveJson'"
-Invoke-SshAndVerify -HostAlias "opnsense" -Command $OpnCmd -Description "Burst OPNsense"
+if ($AvailableHosts -contains "opnsense") {
+    Invoke-SshAndVerify -HostAlias "opnsense" -Command $OpnCmd -Description "Burst OPNsense"
+}
 
 
 # 2. JuiceShop (SSH via alias 'juiceshop')
@@ -87,35 +111,77 @@ Invoke-SshAndVerify -HostAlias "opnsense" -Command $OpnCmd -Description "Burst O
 # Nginx Burst (Port 80) + App Log Burst
 # Note: $(Get-Date) is evaluated locally by PowerShell before sending
 $RemoteDate = "$(Get-Date -Format 'yyyy-MM-ddTHH:mm:ssZ')"
-$JuiceCmd = "for i in `$(seq 1 10); do curl -s -o /dev/null http://127.0.0.1:80/?burst_tag=$Tag&lab_type=burst&lab_env=aiops&LAB_BURST=$Tag&lab_host=juiceshop&lab_signal=web_probe&i=`$i ; done; mkdir -p /home/juice/.pm2/logs && echo `"[${RemoteDate}] info: BURST_TAG=$Tag lab_type=burst lab_env=aiops LAB_BURST=$Tag lab_host=juiceshop lab_signal=app_log HOST=JuiceShop App Log Burst`" >> /home/juice/.pm2/logs/juiceshop-out.log"
 
-Invoke-SshAndVerify -HostAlias "juiceshop" -Command $JuiceCmd -Description "Burst JuiceShop"
+# Encode the complex command to Base64 to avoid SSH/Shell argument parsing issues & crashes
+$RawJuiceCmd = "for i in {1..10}; do curl -s -o /dev/null 'http://127.0.0.1:80/?burst_tag=$Tag&lab_type=burst&lab_env=aiops&LAB_BURST=$Tag&lab_host=juiceshop&lab_signal=web_probe&i='`$i; done; mkdir -p /home/juice/.pm2/logs; echo '[${RemoteDate}] info: BURST_TAG=$Tag lab_type=burst lab_env=aiops LAB_BURST=$Tag lab_host=juiceshop lab_signal=app_log HOST=JuiceShop App Log Burst' >> /home/juice/.pm2/logs/juiceshop-out.log"
+$Bytes = [System.Text.Encoding]::UTF8.GetBytes($RawJuiceCmd)
+$B64 = [Convert]::ToBase64String($Bytes)
+$JuiceCmd = "echo $B64 | base64 -d | bash"
+
+if ($AvailableHosts -contains "juiceshop") {
+    Invoke-SshAndVerify -HostAlias "juiceshop" -Command $JuiceCmd -Description "Burst JuiceShop"
+}
 
 
 # 3. DC (SSH via alias 'dc')
 # -------------------------
-# Step A: Windows EventCreate (Standard)
+# Step A: Windows EventCreate (Standard) — simplified (no nested PowerShell quoting)
 $DescDC = "BURST_TAG=$Tag lab_type=burst lab_env=aiops LAB_BURST=$Tag lab_host=dc lab_signal=event_create DC BURST"
-$PsPayloadDC = "eventcreate /T INFORMATION /ID 999 /L APPLICATION /SO $Tag /D '$DescDC'"
-$WinCmdDC = "powershell -NoProfile -Command `"$PsPayloadDC`"; whoami"
-Invoke-SshAndVerify -HostAlias "dc" -Command $WinCmdDC -Description "Burst DC (Event)"
 
-# Step B: Auth Failure for Wazuh (Expected# Force a failed 4625 logon for Wazuh to detect (Swallow error so we don't fail-fast)
-# We embed the Tag in the username so we can verify the event exists even if Wazuh doesn't alert
-$AuthFailCmd = 'cmd /c "net use \\127.0.0.1\IPC$ /user:FAIL_{0} BURST_BAD_PASS >nul 2>&1 & net use \\127.0.0.1\IPC$ /delete >nul 2>&1"' -f $Tag
-Invoke-SshAndVerify -HostAlias "dc" -Command $AuthFailCmd -Description "Burst DC (AuthFail)" -AllowFailure
+# Run eventcreate directly; safer over SSH -> cmd
+# Using double double-quotes for cmd.exe compatibility
+$WinCmdDC = "eventcreate /T INFORMATION /ID 999 /L APPLICATION /SO $Tag /D ""$DescDC"""
+
+if ($AvailableHosts -contains "dc") {
+    Invoke-SshAndVerify -HostAlias "dc" -Command $WinCmdDC -Description "Burst DC (Event)"
+    
+    # Auth Failure
+    $AuthFailCmd = "powershell -Command `"try { (`$sec = ConvertTo-SecureString 'BURST_BAD_PASS' -AsPlainText -Force); (`$cred = New-Object System.Management.Automation.PSCredential ('FAIL_$Tag', `$sec)); Start-Process cmd.exe -Credential `$cred -NoNewWindow -ArgumentList '/c exit' -ErrorAction Stop } catch {}`""
+    Invoke-SshAndVerify -HostAlias "dc" -Command $AuthFailCmd -Description "Burst DC (AuthFail)" -AllowFailure
+}
 
 
 # 4. PC1 (SSH via alias 'pc1')
 # --------------------------
-# Step A: Windows EventCreate + Service Restart (Standard)
+# Step A: Windows EventCreate (Standard)
 $DescPC = "BURST_TAG=$Tag lab_type=burst lab_env=aiops LAB_BURST=$Tag lab_host=pc1 lab_signal=event_create PC1 BURST"
-# Use escaped double quotes for the inner command string
-$WinCmdPC = "eventcreate /T INFORMATION /ID 777 /L APPLICATION /SO LAB_BURST /D \`"$DescPC\`" & net stop SplunkForwarder & net start SplunkForwarder"
-Invoke-SshAndVerify -HostAlias "pc1" -Command $WinCmdPC -Description "Burst PC1 (Event)"
 
-# Step B: Auth Failure for Wazuh (Expected Fail)
-Invoke-SshAndVerify -HostAlias "pc1" -Command $AuthFailCmd -Description "Burst PC1 (AuthFail)" -AllowFailure
+# Run eventcreate directly (like DC)
+$WinCmdPC = "eventcreate /T INFORMATION /ID 777 /L APPLICATION /SO LAB_BURST /D ""$DescPC"""
+# Define AuthFailCmd globally for reuse
+$AuthFailCmd = "powershell -Command `"try { (`$sec = ConvertTo-SecureString 'BURST_BAD_PASS' -AsPlainText -Force); (`$cred = New-Object System.Management.Automation.PSCredential ('FAIL_$Tag', `$sec)); Start-Process cmd.exe -Credential `$cred -NoNewWindow -ArgumentList '/c exit' -ErrorAction Stop } catch {}`""
+
+if ($AvailableHosts -contains "pc1") {
+    Invoke-SshAndVerify -HostAlias "pc1" -Command $WinCmdPC -Description "Burst PC1 (Event)"
+
+    # Step A.1: Restart Splunk Forwarder to flush logs
+    $SplunkCmdPC = "net stop SplunkForwarder & net start SplunkForwarder"
+    Invoke-SshAndVerify -HostAlias "pc1" -Command $SplunkCmdPC -Description "Burst PC1 (Restart Splunk)" -AllowFailure
+
+    # Step B: Auth Failure for Wazuh (Expected Fail)
+    Invoke-SshAndVerify -HostAlias "pc1" -Command $AuthFailCmd -Description "Burst PC1 (AuthFail)" -AllowFailure
+
+    ### ✅ A) PC1 network probe (Suricata/Zenarmor pivot)
+
+    # Step C: PC1 generates real network traffic (Suricata/Zenarmor can see this at OPNsense)
+    # NOTE: set this to your JuiceShop VM IP/port if different
+    $JuiceIP = "172.16.58.133"
+    $JuicePort = "80"
+
+    $Pc1NetProbeCmd = "powershell -NoProfile -Command `"`$u='http://$JuiceIP`:$JuicePort/?lab_tag=$Tag&lab_type=burst&lab_env=aiops&lab_host=pc1&lab_signal=net_probe&LAB_BURST=$Tag'; curl.exe -s -o NUL `$u`""
+
+    Invoke-SshAndVerify -HostAlias "pc1" -Command $Pc1NetProbeCmd -Description "Burst PC1 (NetProbe)"
+
+    ### ✅ B) Optional: Defender pivot (standard AV test file) on PC1
+
+    # Step D (Optional): Create a standard antivirus test file so Defender generates a clear timeline event.
+    # Tag is in the filename so you can search it in MDE timeline: eicar_<TAG>
+    $Pc1DefenderTestCmd = @"
+powershell -NoProfile -Command "New-Item -ItemType Directory -Force C:\test-WDATP-test | Out-Null; Set-Content -Path C:\test-WDATP-test\eicar_$Tag.com -Value 'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*'"
+"@
+
+    Invoke-SshAndVerify -HostAlias "pc1" -Command $Pc1DefenderTestCmd -Description "Burst PC1 (Defender Test File)"
+}
 
 
 # Finalize

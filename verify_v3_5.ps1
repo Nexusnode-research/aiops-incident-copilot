@@ -100,6 +100,16 @@ foreach ($H in $BurstResults) {
     }
 }
 
+# Fail if any expected host missing
+$SeenHosts = @()
+if ($BurstResults) { $SeenHosts = $BurstResults.lab_host }
+
+foreach ($EH in $ExpectedHosts) {
+    if (-not ($SeenHosts -contains $EH)) {
+        Write-Host "HOST: $EH | COUNT: 0 | STATUS: [FAIL] (Missing host telemetry for burst)" -ForegroundColor Red
+    }
+}
+
 # 2. Detailed Signal Coverage
 Write-Host "`n--- Detailed Signal Coverage ---" -ForegroundColor Yellow
 $DetailQuery = 'index=* earliest=-30m "' + $Tag + '" ' + $HostRex + ' ' + $SignalRex + ' | stats count as events by lab_host, sourcetype, lab_signal | sort lab_host'
@@ -143,6 +153,38 @@ foreach ($DS in $Datasets) {
         
         Write-Host "DATASET: $($DS.Name) | COUNT: $($Res.c) | AGE: $([math]::Round($Res.age_sec, 1))s | STATUS: $StatusStr" -ForegroundColor $Color
     }
+}
+
+# 5. PC1 NetProbe Verification (Suricata/Proxy/Web logs proof)
+Write-Host "`n--- PC1 NetProbe Verification (TAG in URL) ---" -ForegroundColor Yellow
+
+# We search broadly: any event in last 15m that contains the tag and "lab_signal=net_probe"
+# This catches: Suricata HTTP logs, Nginx access logs, proxy logs, app logs, etc.
+$NetProbeQuery = 'index=* earliest=-15m "' + $Tag + '" ("lab_signal=net_probe" OR "net_probe") | stats count by host sourcetype | sort - count'
+$NetProbeResults = Run-Search $NetProbeQuery
+
+if ($NetProbeResults) {
+    $NetProbeResults | Format-Table -AutoSize | Out-String | Write-Host -ForegroundColor Cyan
+    Write-Host "STATUS: [PASS] (Found tagged net_probe activity)" -ForegroundColor Green
+}
+else {
+    Write-Host "STATUS: [WARN] No net_probe found. Check PC1 curl step, routing, or Suricata HTTP logging." -ForegroundColor Yellow
+}
+
+# 6. Defender Test File Verification (tagged filename)
+Write-Host "`n--- Defender Test File Verification (eicar_$Tag.com) ---" -ForegroundColor Yellow
+
+# Depending on your telemetry, this may appear in Sysmon, Defender, Wazuh, or Windows logs.
+# We search for the tagged filename to confirm the artifact exists in telemetry.
+$EicarQuery = 'index=* earliest=-30m ("eicar_' + $Tag + '.com" OR "C:\\test-WDATP-test\\eicar_' + $Tag + '.com") | stats count by host sourcetype | sort - count'
+$EicarResults = Run-Search $EicarQuery
+
+if ($EicarResults) {
+    $EicarResults | Format-Table -AutoSize | Out-String | Write-Host -ForegroundColor Cyan
+    Write-Host "STATUS: [PASS] (Found tagged Defender test file evidence)" -ForegroundColor Green
+}
+else {
+    Write-Host "STATUS: [WARN] No eicar evidence found in Splunk. It may still show in Defender UI only (timeline/alerts)." -ForegroundColor Yellow
 }
 
 # 4. Auth Failure Verification (Deterministic Proof)
